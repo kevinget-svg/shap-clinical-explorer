@@ -348,22 +348,123 @@ ruff check code/ tests/ && mypy code/ --strict
 
 ---
 
-## 7. Reference Literature
+## 7. SHAP Methodological Foundations
 
-The `reference/` directory stores key academic papers that inform the methodological approach of this project. All algorithms and statistical methods implemented in `code/` should align with the methodologies described in these references.
+All algorithms implemented in `code/` must be grounded in the following theoretical framework. The `reference/` directory contains the primary literature; every design choice should be traceable to one of these sources.
 
-| Paper | Relevance |
-|-------|-----------|
-| `1-s2.0-S0950705122013302-main.pdf` | Core SHAP methodology and interpretable ML framework (Knowledge-Based Systems) |
-| `Development and validation of a real-time prediction model for acute kidney injury in hospitalized patients.pdf` | Reference implementation: clinical prediction model development & validation workflow |
+### 7.1 Reference Literature
 
-When implementing modeling or SHAP analysis logic, consult these papers for methodological justification of design choices (e.g., feature selection criteria, model evaluation metrics, SHAP visualization interpretation).
+| # | Paper | Type | Core Contribution |
+|---|-------|------|-------------------|
+| 1 | **A Unified Approach to Interpreting Model Predictions** (Lundberg & Lee, NIPS 2017) | 方法学基石 | 提出 SHAP 框架：定义加性特征归因方法类，证明 Shapley 值是满足局部准确性、缺失性、一致性的唯一解；统一 LIME / DeepLIFT / LRP 等 6 种方法 |
+| 2 | **Algorithms to Estimate Shapley Value Feature Attributions** (Chen, Covert, Lundberg & Lee, 2023) | 算法综述 | 综述 24 种 Shapley 估计算法，将其分解为两个维度：特征移除策略 × 可计算估计策略；厘清条件期望 vs 边际期望 vs 因果干预的区别 |
+| 3 | **SurvSHAP(t)** (1-s2.0-S0950705122013302-main.pdf) | 生存分析扩展 | 将 SHAP 扩展到时间依赖的生存模型，提出 SurvSHAP(t) 值用于解释 Cox-PH / RSF 的生存函数预测 |
+| 4 | **AKI Prediction Model** (Development and validation...) | 临床应用范例 | 可解释 AKI 预测模型的开发与多中心外部验证流程：SHAP Summary Plot + Dependence Plot + Force Plot 的完整临床解释 |
+
+### 7.2 Additive Feature Attribution (SHAP 统一框架)
+
+Paper #1 奠定了项目的理论基础。SHAP 将任何模型预测的解释形式化为**加性特征归因模型**：
+
+```
+g(z') = φ₀ + Σᵢ φᵢ · zᵢ'
+```
+
+其中 `z' ∈ {0,1}ᴹ` 表示 M 个特征是否被"观察"到的二值向量，`φᵢ` 为特征 i 的归因值（即 SHAP value）。
+
+加性归因方法类统一了以下 6 种已有方法：
+- **LIME** — 局部代理模型拟合
+- **DeepLIFT** — 递归归因（summation-to-delta）
+- **Layer-Wise Relevance Propagation** — 深度网络激活反向传播
+- **Shapley Regression Values** — 线性模型多重共线性下的特征重要性
+- **Shapley Sampling Values** — 基于采样的 Shapley 估计
+- **Quantitative Input Influence** — 输入影响量化
+
+### 7.3 Shapley Value 公理体系
+
+Shapley 值是唯一同时满足以下三个公理的特征归因方案（Theorem 1, Paper #1）：
+
+| 公理 | 英文 | 含义 | 对本项目的约束 |
+|------|------|------|---------------|
+| **局部准确性** | Local Accuracy | `f(x) = φ₀ + Σᵢ φᵢ`，归因值之和等于模型预测值 | Force Plot 中所有特征贡献之和 = 模型输出 |
+| **缺失性** | Missingness | 若特征缺失（z'ᵢ=0），则其归因值 φᵢ=0 | 缺失特征不得被赋予非零 SHAP 值 |
+| **一致性** | Consistency | 若模型变更使某特征更重要，其归因值不得降低 | 模型迭代时 SHAP 排名变化方向必须与特征实际重要性变化一致 |
+
+经典 Shapley 值计算公式（合作博弈视角）：
+
+```
+φᵢ(f, x) = Σ_{S⊆F\{i\}}  |S|!(M - |S| - 1)! / M!  ×  [f_x(S∪{i}) - f_x(S)]
+```
+
+其中 `F` 为全体特征集（M = |F|），`f_x(S)` 为仅使用子集 S 中特征时的模型输出估计。
+
+### 7.4 特征移除策略（Paper #2 核心贡献）
+
+Paper #2 指出 Shapley 值计算的复杂性源于两个独立维度，第一个是**如何让模型在特征"缺失"时进行预测**：
+
+| 策略 | 英文 | 数学定义 | 适用场景 |
+|------|------|----------|----------|
+| **条件期望** | Conditional Expectation | `f_x(S) = E[f(X) \| X_S = x_S]` | 特征间存在统计相关性，需要忠实反映数据分布 |
+| **边际期望** | Marginal Expectation | `f_x(S) = E[f(X_S, X_{\bar{S}})]`，忽略 S 与 \bar{S} 的相关性 | 计算上可处理，shap 包默认使用 |
+| **因果干预** | Causal Intervention | `f_x(S) = E[f(X) \| do(X_S = x_S)]` | 需要因果推断的临床解释场景 |
+
+**本项目策略选择原则：**
+- 探索性分析优先使用**边际期望**（`shap.TreeExplainer` / `shap.KernelExplainer` 默认行为）
+- 当特征间存在已知的临床相关性（如实验室指标间的生理学关联）且需要严格反映联合分布时，使用**条件期望**
+- 涉及治疗效应（treatment effect）解释时，考虑**因果干预**框架
+
+### 7.5 可计算估计策略（SHAP 算法分类）
+
+Paper #2 的第二个维度——如何在计算上可处理地估计 Shapley 值——将所有算法分为两大类：
+
+#### 模型无关方法 (Model-Agnostic)
+
+| 算法 | 原理 | 计算复杂度 | 本项目使用场景 |
+|------|------|-----------|---------------|
+| **KernelSHAP** | 加权线性回归拟合 Shapley 值；权重核 `π_x(z') = (M-1) / (M_choose_\|z'\| · \|z'\| · (M-\|z'\|))` | O(2ᴹ · T)，T 为模型推理时间 | 适用于任意黑箱模型（如 statsmodels GLM） |
+| **Permutation SHAP** | 对特征排列进行采样平均 | O(K · M · T)，K 为采样数 | 模型评估阶段的快速近似 |
+| **FastSHAP** | 训练一个摊销解释模型直接预测 SHAP 值 | O(T)（推理时） | 大批量样本需要快速解释时 |
+
+#### 模型特定方法 (Model-Specific)
+
+| 算法 | 适用模型 | 关键假设 | 本项目使用场景 |
+|------|---------|----------|---------------|
+| **TreeSHAP** | 树模型 (XGBoost, Random Forest) | 利用树结构在 O(TLD²) 内精确计算（T=树数, L=叶数, D=深度） | `xgboost`, `sklearn.ensemble.RandomForestClassifier` 的首选方法 |
+| **LinearSHAP** | 线性模型 | SHAP 值 = 系数 × (特征值 - 均值) | `statsmodels GLM` / `LogisticRegression` 的精确解析解 |
+| **DeepSHAP** | 深度网络 | DeepLIFT 的 Shapley 扩展 | 项目中暂不使用 |
+
+**本项目算法选择决策树：**
+```
+模型是树模型？ ──Yes──▶ TreeSHAP (精确且快速)
+     │
+     No
+     ▼
+模型是线性模型？ ──Yes──▶ LinearSHAP (解析解)
+     │
+     No
+     ▼
+模型是生存模型？ ──Yes──▶ survshap.SurvSHAP
+     │
+     No
+     ▼
+KernelSHAP (通用但较慢)
+```
+
+### 7.6 SHAP 解释的层次结构
+
+以上理论基础支撑项目中三层解释分析，每层对应不同的可视化输出：
+
+| 层次 | 聚合方式 | 可视化 | 对应 CLAUDE.md Section 5.2.3 |
+|------|----------|--------|------------------------------|
+| **Global** | `mean(\|SHAP\|)` 跨所有样本 | Summary Bar Plot | SHAP Summary Bar Plot |
+| **Cohort** | 按特征值分组后 SHAP 均值 | Beeswarm Plot, Dependence Plot | SHAP Beeswarm / Dependence |
+| **Local** | 单样本的 φᵢ 向量 | Force Plot, Waterfall Plot | Force Plot |
 
 ---
 
 ## 8. Key Design Decisions
 
 - **Random seed:** `42` is the project-wide global seed. Import from `shared.config.SEED`.
-- **SHAP vs. permutation importance:** SHAP is preferred because it provides both global and local (per-subject) explanations, which is critical for clinical interpretation.
-- **`survshap`** is used for survival endpoints instead of standard `shap` because it correctly handles the time-dependent nature of survival predictions.
+- **SHAP vs. permutation importance:** SHAP is preferred because it provides both global and local (per-subject) explanations with a solid game-theoretic foundation (Shapley axioms), which is critical for clinical interpretation.
+- **`survshap`** is used for survival endpoints instead of standard `shap` because it correctly handles the time-dependent nature of survival predictions, extending the additive attribution framework to the survival function `S(t)`.
 - **`pyreadstat`** is chosen over `sas7bdat`/`pyreadr` because it handles both SAS and R formats with metadata preservation (variable labels, value formats).
+- **边际期望 vs 条件期望:** 默认使用边际期望（与 `shap` 包一致）；当临床场景需要反映特征间已知的生理学相关性时升级为条件期望。
