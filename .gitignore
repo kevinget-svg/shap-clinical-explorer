@@ -1,0 +1,38 @@
+# Python virtual environment
+.venv/
+
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# macOS
+.DS_Store
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Project output (generated figures & CSVs — not versioned)
+output/*.png
+output/*.svg
+output/*.csv
+
+# Data files (keep directory structure, ignore large data)
+data/*.sas7bdat
+data/*.RData
+data/*.xlsx
+data/*.csv
+
+# Claude Code internal state
+.claude/
+
+# Environment & secrets
+.env
