@@ -150,7 +150,10 @@ def step_model(
     model = trainer.train(X_train, y_train, model_type=model_choice, endpoint=endpoint)
     metrics = trainer.evaluate(X_test, y_test)
 
-    logger.info(f"Test metrics: R²={metrics['r2']:.4f}, RMSE={metrics['rmse']:.4f}, MAE={metrics['mae']:.4f}")
+    if endpoint == EndpointType.BINARY:
+        logger.info(f"Test metrics: ROC AUC={metrics['roc_auc']:.4f}, Accuracy={metrics['accuracy']:.4f}")
+    else:
+        logger.info(f"Test metrics: R²={metrics['r2']:.4f}, RMSE={metrics['rmse']:.4f}, MAE={metrics['mae']:.4f}")
     return model, metrics
 
 
@@ -180,39 +183,53 @@ def step_shap(
 def step_visualize(
     shap_values: np.ndarray,
     X_test: np.ndarray,
+    y_test: np.ndarray,
     feature_names: list[str],
     importance_df: pd.DataFrame,
     output_dir: Path,
     design: TrialDesign,
-    model_type: str,
+    endpoint: EndpointType,
+    model: object,
 ) -> None:
-    """[Step 5] Generate publication-ready SHAP figures."""
+    """[Step 5] Generate publication-ready SHAP figures.
+
+    Filename convention: {design_label}_{endpoint_label}_{plot_type}.{fmt}
+    e.g. RCT_BINARY_beeswarm.png, SIG_CONTINUOUS_summary_bar.svg
+    """
     from code.visualization import (
         plot_beeswarm, plot_summary_bar, plot_dependence,
         plot_waterfall, plot_rct_comparison, plot_summary_panel,
+        plot_roc_curve, make_prefix,
     )
-    logger.info(f"Generating visualizations → {output_dir}")
+
+    prefix = make_prefix(design, endpoint)
+    logger.info(f"Generating visualizations → {output_dir}  (prefix: {prefix})")
 
     # Always: Beeswarm + Summary Bar + Summary Panel
-    plot_beeswarm(shap_values, X_test, feature_names, output_dir)
-    plot_summary_bar(shap_values, feature_names, output_dir)
-    plot_summary_panel(shap_values, X_test, feature_names, output_dir)
+    plot_beeswarm(shap_values, X_test, feature_names, output_dir, prefix)
+    plot_summary_bar(shap_values, feature_names, output_dir, prefix)
+    plot_summary_panel(shap_values, X_test, feature_names, output_dir, prefix)
 
-    # Top feature dependence plot
+    # Top 3 feature dependence plots
     top_features = importance_df["feature"].head(3).tolist()
     for feat in top_features:
         plot_dependence(shap_values, X_test, feature_names, output_dir,
-                        target_feature=feat)
+                        prefix, target_feature=feat)
 
     # Waterfall for a representative sample (first test sample)
     plot_waterfall(shap_values, feature_names, sample_idx=0,
-                   output_dir=output_dir, max_display=10)
+                   output_dir=output_dir, prefix=prefix, max_display=10)
 
     # RCT-specific: treatment arm comparison
     if design == TrialDesign.RCT_TWO_ARM:
         treatment_idx = feature_names.index("ARM") if "ARM" in feature_names else 0
         plot_rct_comparison(shap_values, X_test, feature_names,
-                            treatment_col_idx=treatment_idx, output_dir=output_dir)
+                            treatment_col_idx=treatment_idx,
+                            output_dir=output_dir, prefix=prefix)
+
+    # Binary-specific: ROC curve
+    if endpoint == EndpointType.BINARY:
+        plot_roc_curve(model, X_test, y_test, output_dir=output_dir, prefix=prefix)
 
 
 # ---------------------------------------------------------------------------
@@ -271,8 +288,8 @@ def main(argv: Optional[list[str]] = None) -> None:
         # [5] Visualize
         if not args.no_plot:
             step_visualize(
-                shap_values, X_test, feature_names, importance_df,
-                args.output, design, args.model,
+                shap_values, X_test, y_test, feature_names, importance_df,
+                args.output, design, endpoint, model,
             )
 
         logger.info("Pipeline completed successfully.")
