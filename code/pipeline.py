@@ -19,14 +19,15 @@ import sys
 from pathlib import Path
 from typing import Optional
 
+import numpy as np
+import pandas as pd
+
 from shared.config import (
     SEED,
-    DATA_DIR,
     OUTPUT_DIR,
     EndpointType,
     TrialDesign,
     setup_logging,
-    setup_matplotlib_style,
 )
 
 logger = logging.getLogger(__name__)
@@ -46,7 +47,6 @@ Examples:
   python -m code.pipeline -i data/study.sas7bdat -t AVAL -e survival -c CNSR -d single_arm
         """,
     )
-    # Required
     parser.add_argument(
         "-i", "--input", type=Path, required=True,
         help="Path to input data file (.sas7bdat / .RData / .xlsx / .csv)",
@@ -55,13 +55,11 @@ Examples:
         "-t", "--target", type=str, required=True,
         help="Target / endpoint column name (e.g. AVAL, outcome)",
     )
-    # Endpoint type
     parser.add_argument(
         "-e", "--endpoint", type=str, required=True,
         choices=[e.value for e in EndpointType],
         help="Endpoint type",
     )
-    # Optional
     parser.add_argument(
         "-c", "--censor", type=str, default=None,
         help="Censor column name (required for survival endpoints; 0=event, 1=censored)",
@@ -77,7 +75,7 @@ Examples:
     )
     parser.add_argument(
         "--model", type=str, default="auto",
-        help="Model override: 'rf', 'xgb', 'cox', 'glm', or 'auto' (auto-select based on endpoint)",
+        help="Model override: 'rf', 'xgb', 'glm', or 'auto' (auto-select based on endpoint)",
     )
     parser.add_argument(
         "--no-plot", action="store_true",
@@ -91,44 +89,130 @@ Examples:
 
 
 # ---------------------------------------------------------------------------
-# Pipeline steps (placeholders — implemented incrementally)
+# Pipeline steps
 # ---------------------------------------------------------------------------
-def step_load(input_path: Path) -> "pd.DataFrame":
+def step_load(input_path: Path) -> pd.DataFrame:
     """[Step 1] Load and validate raw clinical data."""
+    from code.data_loader import load_clinical_data, get_data_summary
     logger.info(f"Loading data: {input_path}")
-    # TODO: delegate to code.data_loader
-    raise NotImplementedError("data_loader module not yet implemented")
+    df = load_clinical_data(input_path)
+    logger.info(get_data_summary(df))
+    return df
 
 
-def step_preprocess(df, target_col: str, censor_col: Optional[str], endpoint: EndpointType) -> tuple:
-    """[Step 2] ADaM-standard cleaning and feature engineering."""
-    logger.info(f"Preprocessing: target={target_col}, endpoint={endpoint.value}")
-    # TODO: delegate to code.preprocessing
-    raise NotImplementedError("preprocessing module not yet implemented")
+def step_preprocess(
+    df: pd.DataFrame,
+    target_col: str,
+    design: TrialDesign,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[str]]:
+    """[Step 2] ADaM-standard cleaning, feature engineering, train/test split.
+
+    Returns: X_train, X_test, y_train, y_test, feature_names
+    """
+    from code.preprocessing import Preprocessor, split_train_test
+    logger.info(f"Preprocessing: target={target_col}, design={design.value}")
+
+    preprocessor = Preprocessor()
+    preprocessor.fit(df, target_col, design)
+
+    # Separate target from features
+    feature_df = df.drop(columns=[target_col], errors="ignore")
+    y = df[target_col]
+
+    # Transform features (impute + encode)
+    X = preprocessor.transform(feature_df)
+    feature_names = preprocessor.feature_names
+    logger.info(f"Features after encoding: {len(feature_names)} — {feature_names}")
+
+    # Train/test split (stratified by ARM if RCT)
+    treatment_col = "ARM" if design == TrialDesign.RCT_TWO_ARM and "ARM" in X.columns else None
+    X_train, X_test, y_train, y_test = split_train_test(X, y, treatment_col)
+
+    return X_train, X_test, y_train, y_test, feature_names
 
 
 def step_model(
-    X_train, X_test, y_train, y_test,
-    endpoint: EndpointType, model_choice: str
-):
-    """[Step 3] Train/test split → model fitting → (optional) hyperparameter tuning."""
+    X_train: np.ndarray,
+    X_test: np.ndarray,
+    y_train: np.ndarray,
+    y_test: np.ndarray,
+    endpoint: EndpointType,
+    model_choice: str,
+) -> tuple[object, dict[str, float]]:
+    """[Step 3] Model training + evaluation.
+
+    Returns: (trained_model, metrics_dict)
+    """
+    from code.modeling import ModelTrainer
     logger.info(f"Modeling: endpoint={endpoint.value}, model={model_choice}")
-    # TODO: delegate to code.modeling
-    raise NotImplementedError("modeling module not yet implemented")
+
+    trainer = ModelTrainer()
+    model = trainer.train(X_train, y_train, model_type=model_choice, endpoint=endpoint)
+    metrics = trainer.evaluate(X_test, y_test)
+
+    logger.info(f"Test metrics: R²={metrics['r2']:.4f}, RMSE={metrics['rmse']:.4f}, MAE={metrics['mae']:.4f}")
+    return model, metrics
 
 
-def step_shap(model, X_train, X_test, endpoint: EndpointType) -> "pd.DataFrame":
-    """[Step 4] Compute SHAP values and feature importance ranking."""
+def step_shap(
+    model: object,
+    X_train: np.ndarray,
+    X_test: np.ndarray,
+    model_type: str,
+    feature_names: list[str],
+) -> tuple[np.ndarray, pd.DataFrame, pd.DataFrame]:
+    """[Step 4] Compute SHAP values + feature importance.
+
+    Returns: (shap_values, shap_df, importance_df)
+    """
+    from code.shap_analysis import SHAPAnalyzer
     logger.info("Computing SHAP values")
-    # TODO: delegate to code.shap_analysis
-    raise NotImplementedError("shap_analysis module not yet implemented")
+
+    analyzer = SHAPAnalyzer()
+    shap_values = analyzer.compute(model, X_train, X_test, model_type=model_type)
+    importance = analyzer.get_feature_importance(feature_names)
+    shap_df = analyzer.get_shap_dataframe(feature_names)
+
+    logger.info(f"Top 5 features:\n{importance.head(5).to_string(index=False)}")
+    return shap_values, shap_df, importance
 
 
-def step_visualize(shap_df, output_dir: Path, endpoint: EndpointType, design: TrialDesign) -> None:
-    """[Step 5] Generate publication-ready figures."""
+def step_visualize(
+    shap_values: np.ndarray,
+    X_test: np.ndarray,
+    feature_names: list[str],
+    importance_df: pd.DataFrame,
+    output_dir: Path,
+    design: TrialDesign,
+    model_type: str,
+) -> None:
+    """[Step 5] Generate publication-ready SHAP figures."""
+    from code.visualization import (
+        plot_beeswarm, plot_summary_bar, plot_dependence,
+        plot_waterfall, plot_rct_comparison, plot_summary_panel,
+    )
     logger.info(f"Generating visualizations → {output_dir}")
-    # TODO: delegate to code.visualization
-    raise NotImplementedError("visualization module not yet implemented")
+
+    # Always: Beeswarm + Summary Bar + Summary Panel
+    plot_beeswarm(shap_values, X_test, feature_names, output_dir)
+    plot_summary_bar(shap_values, feature_names, output_dir)
+    plot_summary_panel(shap_values, X_test, feature_names, output_dir)
+
+    # Top feature dependence plot
+    top_features = importance_df["feature"].head(3).tolist()
+    for feat in top_features:
+        plot_dependence(shap_values, X_test, feature_names, output_dir,
+                        target_feature=feat)
+
+    # Waterfall for a representative sample (first test sample)
+    plot_waterfall(shap_values, feature_names, sample_idx=0,
+                   output_dir=output_dir, max_display=10)
+
+    # RCT-specific: treatment arm comparison
+    if design == TrialDesign.RCT_TWO_ARM:
+        treatment_idx = feature_names.index("ARM") if "ARM" in feature_names else 0
+        plot_rct_comparison(shap_values, X_test, feature_names,
+                            treatment_col_idx=treatment_idx, output_dir=output_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +233,6 @@ def main(argv: Optional[list[str]] = None) -> None:
     endpoint = EndpointType(args.endpoint)
     design = TrialDesign(args.design)
 
-    # Validate: survival requires censor column
     if endpoint == EndpointType.SURVIVAL and not args.censor:
         logger.error("--censor is required for survival endpoints")
         sys.exit(1)
@@ -168,26 +251,33 @@ def main(argv: Optional[list[str]] = None) -> None:
 
         # [2] Preprocess
         X_train, X_test, y_train, y_test, feature_names = step_preprocess(
-            df, args.target, args.censor, endpoint
+            df, args.target, design
         )
 
         # [3] Model
-        model = step_model(X_train, X_test, y_train, y_test, endpoint, args.model)
+        model, metrics = step_model(
+            X_train, X_test, y_train, y_test, endpoint, args.model
+        )
 
         # [4] SHAP
-        shap_df = step_shap(model, X_train, X_test, endpoint)
+        shap_values, shap_df, importance_df = step_shap(
+            model, X_train, X_test, args.model, feature_names
+        )
+
+        # Save SHAP values CSV
+        shap_df.to_csv(args.output / "shap_values.csv", index=False)
+        importance_df.to_csv(args.output / "feature_importance.csv", index=False)
 
         # [5] Visualize
         if not args.no_plot:
-            setup_matplotlib_style()
-            step_visualize(shap_df, args.output, endpoint, design)
+            step_visualize(
+                shap_values, X_test, feature_names, importance_df,
+                args.output, design, args.model,
+            )
 
         logger.info("Pipeline completed successfully.")
+        logger.info(f"  Output files in: {args.output}")
 
-    except NotImplementedError as e:
-        logger.warning(f"Pipeline step not yet implemented: {e}")
-        logger.info("Run 'git status' to check development progress.")
-        sys.exit(0)
     except Exception:
         logger.exception("Pipeline failed with unexpected error")
         sys.exit(1)
