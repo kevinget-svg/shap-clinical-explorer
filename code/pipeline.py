@@ -104,10 +104,12 @@ def step_preprocess(
     df: pd.DataFrame,
     target_col: str,
     design: TrialDesign,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[str]]:
+    censor_col: Optional[str] = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[str], Optional[pd.DataFrame], Optional[pd.DataFrame]]:
     """[Step 2] ADaM-standard cleaning, feature engineering, train/test split.
 
-    Returns: X_train, X_test, y_train, y_test, feature_names
+    Returns: X_train, X_test, y_train, y_test, feature_names, X_train_df, X_test_df
+    The DataFrame versions are used by survshap (survival endpoint).
     """
     from code.preprocessing import Preprocessor, split_train_test
     logger.info(f"Preprocessing: target={target_col}, design={design.value}")
@@ -115,20 +117,39 @@ def step_preprocess(
     preprocessor = Preprocessor()
     preprocessor.fit(df, target_col, design)
 
-    # Separate target from features
     feature_df = df.drop(columns=[target_col], errors="ignore")
-    y = df[target_col]
 
-    # Transform features (impute + encode)
+    # For survival, also drop the censor column from features
+    if censor_col and censor_col in feature_df.columns:
+        feature_df = feature_df.drop(columns=[censor_col])
+
     X = preprocessor.transform(feature_df)
     feature_names = preprocessor.feature_names
     logger.info(f"Features after encoding: {len(feature_names)} — {feature_names}")
 
+    # Build target (structured array for survival, Series otherwise)
+    if censor_col:
+        from sksurv.util import Surv
+        cnsr = df[censor_col].values.astype(bool)
+        time = df[target_col].values.astype(float)
+        y = Surv.from_arrays(event=~cnsr, time=time)
+        logger.info(f"Survival y: {len(y)} samples, "
+                    f"events={(~cnsr).sum()}, censored={cnsr.sum()}")
+    else:
+        y = df[target_col]
+
     # Train/test split (stratified by ARM if RCT)
-    treatment_col = "ARM" if design == TrialDesign.RCT_TWO_ARM and "ARM" in X.columns else None
+    treatment_col = None
+    if design == TrialDesign.RCT_TWO_ARM and "ARM" in X.columns:
+        treatment_col = "ARM"
+
     X_train, X_test, y_train, y_test = split_train_test(X, y, treatment_col)
 
-    return X_train, X_test, y_train, y_test, feature_names
+    # Keep DataFrame copies for survshap
+    X_train_df = pd.DataFrame(X_train, columns=feature_names)
+    X_test_df = pd.DataFrame(X_test, columns=feature_names)
+
+    return X_train, X_test, y_train, y_test, feature_names, X_train_df, X_test_df
 
 
 def step_model(
@@ -138,10 +159,10 @@ def step_model(
     y_test: np.ndarray,
     endpoint: EndpointType,
     model_choice: str,
-) -> tuple[object, dict[str, float]]:
+) -> tuple[object, dict[str, float], str]:
     """[Step 3] Model training + evaluation.
 
-    Returns: (trained_model, metrics_dict)
+    Returns: (trained_model, metrics_dict, actual_model_type)
     """
     from code.modeling import ModelTrainer
     logger.info(f"Modeling: endpoint={endpoint.value}, model={model_choice}")
@@ -149,12 +170,17 @@ def step_model(
     trainer = ModelTrainer()
     model = trainer.train(X_train, y_train, model_type=model_choice, endpoint=endpoint)
     metrics = trainer.evaluate(X_test, y_test)
+    actual_type = trainer.model_type_
 
-    if endpoint == EndpointType.BINARY:
+    if endpoint == EndpointType.SURVIVAL:
+        logger.info(f"Test C-index: {metrics['c_index']:.4f}")
+    elif endpoint == EndpointType.BINARY:
         logger.info(f"Test metrics: ROC AUC={metrics['roc_auc']:.4f}, Accuracy={metrics['accuracy']:.4f}")
+    elif endpoint == EndpointType.COUNT:
+        logger.info(f"Test metrics: RMSE={metrics['rmse']:.4f}, MAE={metrics['mae']:.4f}, D²={metrics['d2_pseudo_r2']:.4f}")
     else:
         logger.info(f"Test metrics: R²={metrics['r2']:.4f}, RMSE={metrics['rmse']:.4f}, MAE={metrics['mae']:.4f}")
-    return model, metrics
+    return model, metrics, actual_type
 
 
 def step_shap(
@@ -163,21 +189,38 @@ def step_shap(
     X_test: np.ndarray,
     model_type: str,
     feature_names: list[str],
-) -> tuple[np.ndarray, pd.DataFrame, pd.DataFrame]:
+    endpoint: EndpointType = EndpointType.CONTINUOUS,
+    X_train_df: Optional[pd.DataFrame] = None,
+    X_test_df: Optional[pd.DataFrame] = None,
+    y_train: Optional[np.ndarray] = None,
+) -> tuple[np.ndarray, pd.DataFrame, pd.DataFrame, object]:
     """[Step 4] Compute SHAP values + feature importance.
 
-    Returns: (shap_values, shap_df, importance_df)
+    Returns: (shap_values, shap_df, importance_df, analyzer)
+    The analyzer object carries survshap 3D data for survival plots.
     """
     from code.shap_analysis import SHAPAnalyzer
     logger.info("Computing SHAP values")
 
     analyzer = SHAPAnalyzer()
-    shap_values = analyzer.compute(model, X_train, X_test, model_type=model_type)
+
+    if endpoint == EndpointType.SURVIVAL:
+        if X_train_df is None or X_test_df is None or y_train is None:
+            raise ValueError(
+                "X_train_df, X_test_df, and y_train are required for survival SHAP"
+            )
+        shap_values = analyzer.compute_survival(
+            model, X_train_df, X_test_df, y_train, feature_names,
+            model_type=model_type,
+        )
+    else:
+        shap_values = analyzer.compute(model, X_train, X_test, model_type=model_type)
+
     importance = analyzer.get_feature_importance(feature_names)
     shap_df = analyzer.get_shap_dataframe(feature_names)
 
     logger.info(f"Top 5 features:\n{importance.head(5).to_string(index=False)}")
-    return shap_values, shap_df, importance
+    return shap_values, shap_df, importance, analyzer
 
 
 def step_visualize(
@@ -190,6 +233,7 @@ def step_visualize(
     design: TrialDesign,
     endpoint: EndpointType,
     model: object,
+    analyzer: object = None,
 ) -> None:
     """[Step 5] Generate publication-ready SHAP figures.
 
@@ -199,11 +243,71 @@ def step_visualize(
     from code.visualization import (
         plot_beeswarm, plot_summary_bar, plot_dependence,
         plot_waterfall, plot_rct_comparison, plot_summary_panel,
-        plot_roc_curve, make_prefix,
+        plot_roc_curve, plot_survshap_time, plot_survshap_aggregated,
+        plot_survshap_panel, plot_count_obs_vs_pred, plot_count_panel,
+        make_prefix,
     )
 
     prefix = make_prefix(design, endpoint)
     logger.info(f"Generating visualizations → {output_dir}  (prefix: {prefix})")
+
+    # Survival: Beeswarm + Summary Bar panel, plus SurvSHAP(t) time plots
+    if endpoint == EndpointType.SURVIVAL:
+        plot_summary_panel(shap_values, X_test, feature_names, output_dir, prefix)
+
+        # RCT-specific: treatment arm comparison (align X with subsampled SHAP)
+        if design == TrialDesign.RCT_TWO_ARM:
+            treatment_idx = feature_names.index("ARM") if "ARM" in feature_names else 0
+            X_aligned = X_test[:shap_values.shape[0]]
+            plot_rct_comparison(shap_values, X_aligned, feature_names,
+                                treatment_col_idx=treatment_idx,
+                                output_dir=output_dir, prefix=prefix)
+
+        if analyzer is not None and hasattr(analyzer, "survshap_values_") and analyzer.survshap_values_ is not None:
+            sv_3d = analyzer.survshap_values_
+            times = analyzer.survshap_times_
+            n_features = len(feature_names)
+
+            sv_agg = sv_3d.mean(axis=0)
+            if sv_agg.ndim == 2 and sv_agg.shape[0] == n_features:
+                # Combined panel: time curves + box plot
+                plot_survshap_panel(sv_3d, feature_names, times,
+                                    output_dir, prefix)
+                # Supplementary: single-subject decomposition
+                plot_survshap_aggregated(sv_3d, X_test, feature_names,
+                                         output_dir, prefix, sample_idx=0,
+                                         times=times)
+                plot_survshap_aggregated(sv_3d, X_test, feature_names,
+                                         output_dir, prefix, sample_idx=1,
+                                         times=times)
+        return
+
+    # Count: standard SHAP plots + count-specific diagnostics
+    if endpoint == EndpointType.COUNT:
+        plot_beeswarm(shap_values, X_test, feature_names, output_dir, prefix)
+        plot_summary_bar(shap_values, feature_names, output_dir, prefix)
+        plot_summary_panel(shap_values, X_test, feature_names, output_dir, prefix)
+
+        top_features = importance_df["feature"].head(3).tolist()
+        for feat in top_features:
+            plot_dependence(shap_values, X_test, feature_names, output_dir,
+                            prefix, target_feature=feat)
+
+        plot_waterfall(shap_values, feature_names, sample_idx=0,
+                       output_dir=output_dir, prefix=prefix, max_display=10)
+
+        if design == TrialDesign.RCT_TWO_ARM:
+            treatment_idx = feature_names.index("ARM") if "ARM" in feature_names else 0
+            plot_rct_comparison(shap_values, X_test, feature_names,
+                                treatment_col_idx=treatment_idx,
+                                output_dir=output_dir, prefix=prefix)
+
+        # Count-specific: observed vs predicted by arm
+        plot_count_obs_vs_pred(model, X_test, y_test, feature_names,
+                               output_dir=output_dir, prefix=prefix)
+        plot_count_panel(shap_values, X_test, y_test, feature_names, model,
+                         output_dir=output_dir, prefix=prefix)
+        return
 
     # Always: Beeswarm + Summary Bar + Summary Panel
     plot_beeswarm(shap_values, X_test, feature_names, output_dir, prefix)
@@ -267,18 +371,21 @@ def main(argv: Optional[list[str]] = None) -> None:
         df = step_load(args.input)
 
         # [2] Preprocess
-        X_train, X_test, y_train, y_test, feature_names = step_preprocess(
-            df, args.target, design
+        (X_train, X_test, y_train, y_test, feature_names,
+         X_train_df, X_test_df) = step_preprocess(
+            df, args.target, design, censor_col=args.censor
         )
 
         # [3] Model
-        model, metrics = step_model(
+        model, metrics, actual_model_type = step_model(
             X_train, X_test, y_train, y_test, endpoint, args.model
         )
 
         # [4] SHAP
-        shap_values, shap_df, importance_df = step_shap(
-            model, X_train, X_test, args.model, feature_names
+        shap_values, shap_df, importance_df, analyzer = step_shap(
+            model, X_train, X_test, actual_model_type, feature_names,
+            endpoint=endpoint, X_train_df=X_train_df, X_test_df=X_test_df,
+            y_train=y_train,
         )
 
         # Save SHAP values CSV
@@ -289,7 +396,7 @@ def main(argv: Optional[list[str]] = None) -> None:
         if not args.no_plot:
             step_visualize(
                 shap_values, X_test, y_test, feature_names, importance_df,
-                args.output, design, endpoint, model,
+                args.output, design, endpoint, model, analyzer=analyzer,
             )
 
         logger.info("Pipeline completed successfully.")

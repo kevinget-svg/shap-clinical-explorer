@@ -99,7 +99,7 @@ def plot_beeswarm(
     n_features = shap_values.shape[1]
     importance_order = np.argsort(np.abs(shap_values).mean(axis=0))
 
-    fig, ax = plt.subplots(figsize=(8, max(3, n_features * 0.35)))
+    fig, ax = plt.subplots(figsize=(8, 4.5))
 
     shap_ordered = shap_values[:, importance_order]
     X_ordered = X[:, importance_order]
@@ -148,7 +148,7 @@ def plot_summary_bar(
     sorted_names = [feature_names[i] for i in order]
     sorted_vals = mean_abs[order]
 
-    fig, ax = plt.subplots(figsize=(8, max(3, len(feature_names) * 0.35)))
+    fig, ax = plt.subplots(figsize=(8, 4.5))
     bars = ax.barh(sorted_names, sorted_vals, height=0.6,
                    color=CLINICAL_COLORS["primary"])
 
@@ -196,7 +196,7 @@ def plot_dependence(
         "shap_diverging", SHAP_COLORMAP
     )
 
-    fig, ax = plt.subplots(figsize=(6, 4.5))
+    fig, ax = plt.subplots(figsize=(8, 4.5))
     sc = ax.scatter(
         feat_vals, shap_values[:, idx],
         c=X[:, interaction_idx], cmap=colors,
@@ -235,7 +235,7 @@ def plot_waterfall(
     top_names = [feature_names[i] for i in top_idx]
     top_vals = sample_shap[top_idx]
 
-    fig, ax = plt.subplots(figsize=(8, max(3, max_display * 0.3)))
+    fig, ax = plt.subplots(figsize=(8, 4.5))
 
     labels = ["E[f(x)]"] + top_names
     colors_bar = [
@@ -281,18 +281,23 @@ def plot_rct_comparison(
     prefix: str,
 ) -> plt.Figure:
     """RCT-specific: compare mean(|SHAP|) between treatment and control arms."""
-    arm_vals = X[:, treatment_col_idx]
+    # Align rows (SHAP may be subsampled vs X, e.g. survshap)
+    n = min(shap_values.shape[0], X.shape[0])
+    shap_aligned = shap_values[:n]
+    X_aligned = X[:n]
+
+    arm_vals = X_aligned[:, treatment_col_idx]
     mask_control = arm_vals < 0.5
     mask_treatment = arm_vals >= 0.5
 
-    control_imp = np.abs(shap_values[mask_control]).mean(axis=0)
-    treat_imp = np.abs(shap_values[mask_treatment]).mean(axis=0)
+    control_imp = np.abs(shap_aligned[mask_control]).mean(axis=0)
+    treat_imp = np.abs(shap_aligned[mask_treatment]).mean(axis=0)
 
     overall = (control_imp + treat_imp) / 2
     order = np.argsort(overall)
     names_ordered = [feature_names[i] for i in order]
 
-    fig, ax = plt.subplots(figsize=(9, max(3, len(feature_names) * 0.35)))
+    fig, ax = plt.subplots(figsize=(8, 4.5))
     y = np.arange(len(feature_names))
     height = 0.35
 
@@ -310,6 +315,201 @@ def plot_rct_comparison(
 
     fig.tight_layout()
     _save(fig, prefix, "rct_comparison", output_dir)
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# Count endpoint: Observed vs Predicted by Arm
+# ---------------------------------------------------------------------------
+def plot_count_obs_vs_pred(
+    model: object,
+    X_test: np.ndarray,
+    y_test: np.ndarray,
+    feature_names: list[str],
+    output_dir: str | Path,
+    prefix: str,
+) -> plt.Figure:
+    """Grouped bar chart: observed vs predicted mean count by treatment arm.
+
+    Parameters
+    ----------
+    model : trained count model (must have .predict)
+    X_test : np.ndarray
+    y_test : np.ndarray
+        Actual observed event counts.
+    feature_names : list[str]
+    output_dir : str | Path
+    prefix : str
+    """
+    y_pred = np.clip(model.predict(X_test), 0, None)
+    y_test = np.asarray(y_test, dtype=float)
+
+    # Find treatment arm column
+    arm_idx = feature_names.index("ARM") if "ARM" in feature_names else 0
+    arm_vals = X_test[:, arm_idx]
+    mask_ctrl = arm_vals < 0.5
+    mask_trt = arm_vals >= 0.5
+
+    groups = ["Control", "Treatment"]
+    obs_means = [y_test[mask_ctrl].mean(), y_test[mask_trt].mean()]
+    pred_means = [y_pred[mask_ctrl].mean(), y_pred[mask_trt].mean()]
+
+    # SEM for error bars
+    from scipy import stats as sp_stats
+    obs_sem = [
+        sp_stats.sem(y_test[mask_ctrl]) if mask_ctrl.sum() > 1 else 0,
+        sp_stats.sem(y_test[mask_trt]) if mask_trt.sum() > 1 else 0,
+    ]
+    pred_sem = [
+        sp_stats.sem(y_pred[mask_ctrl]) if mask_ctrl.sum() > 1 else 0,
+        sp_stats.sem(y_pred[mask_trt]) if mask_trt.sum() > 1 else 0,
+    ]
+
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    x = np.arange(len(groups))
+    width = 0.35
+
+    bars1 = ax.bar(x - width / 2, obs_means, width,
+                   color=CLINICAL_COLORS["primary"], label="Observed",
+                   yerr=obs_sem, capsize=4, alpha=0.85)
+    bars2 = ax.bar(x + width / 2, pred_means, width,
+                   color=CLINICAL_COLORS["secondary"], label="Predicted",
+                   yerr=pred_sem, capsize=4, alpha=0.85)
+
+    # Annotate bar values
+    for bar in bars1:
+        h = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width() / 2, h + 0.05,
+                f"{h:.2f}", ha="center", va="bottom", fontsize=8)
+    for bar in bars2:
+        h = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width() / 2, h + 0.05,
+                f"{h:.2f}", ha="center", va="bottom", fontsize=8)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(groups)
+    ax.set_ylabel("Mean Event Count")
+    ax.set_title("Observed vs Predicted Count by Treatment Arm",
+                 fontsize=12, fontweight="bold")
+    ax.legend(loc="upper right")
+
+    # Annotate rate ratio
+    rr = obs_means[1] / (obs_means[0] + 1e-10)
+    ax.text(0.98, 0.05,
+            f"Observed Rate Ratio\n(Trt / Ctrl) = {rr:.3f}",
+            transform=ax.transAxes, fontsize=9,
+            ha="right", va="bottom",
+            bbox={"boxstyle": "round,pad=0.3", "facecolor": "lightgray", "alpha": 0.5})
+
+    fig.tight_layout()
+    _save(fig, prefix, "count_obs_vs_pred", output_dir)
+    return fig
+
+
+def plot_count_panel(
+    shap_values: np.ndarray,
+    X_test: np.ndarray,
+    y_test: np.ndarray,
+    feature_names: list[str],
+    model: object,
+    output_dir: str | Path,
+    prefix: str,
+) -> plt.Figure:
+    """Count-specific panel: calibration (left) + obs/pred bar (right).
+
+    Left: Observed vs Predicted scatter colored by treatment arm,
+          with y=x reference and LOESS trend.
+    Right: Grouped bar chart of mean observed/predicted count by arm.
+
+    16:9 aspect ratio.
+    """
+    y_pred = np.clip(model.predict(X_test), 0, None)
+    y_test = np.asarray(y_test, dtype=float)
+
+    arm_idx = feature_names.index("ARM") if "ARM" in feature_names else 0
+    arm_vals = X_test[:, arm_idx]
+    mask_ctrl = arm_vals < 0.5
+    mask_trt = arm_vals >= 0.5
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 9))
+
+    # --- Left: Calibration scatter ---
+    ax1.scatter(y_pred[mask_ctrl], y_test[mask_ctrl],
+                c=CLINICAL_COLORS["control"], label="Control",
+                s=30, alpha=0.6, edgecolors="none")
+    ax1.scatter(y_pred[mask_trt], y_test[mask_trt],
+                c=CLINICAL_COLORS["treatment"], label="Treatment",
+                s=30, alpha=0.6, edgecolors="none")
+
+    # y=x reference
+    lims = [0, max(y_test.max(), y_pred.max()) * 1.1]
+    ax1.plot(lims, lims, color=CLINICAL_COLORS["neutral"],
+             linestyle="--", linewidth=0.8, label="Perfect calibration")
+
+    # LOESS trend (combined)
+    try:
+        from statsmodels.nonparametric.smoothers_lowess import lowess
+        sorted_idx = np.argsort(y_pred)
+        smoothed = lowess(y_test[sorted_idx], y_pred[sorted_idx], frac=0.5)
+        ax1.plot(smoothed[:, 0], smoothed[:, 1],
+                 color="black", linewidth=1.2, label="LOESS trend")
+    except Exception:
+        pass
+
+    ax1.set_xlabel("Predicted Count")
+    ax1.set_ylabel("Observed Count")
+    ax1.set_title("A. Calibration: Observed vs Predicted",
+                  fontsize=11, fontweight="bold", loc="left")
+    ax1.legend(fontsize=7, loc="upper left")
+
+    # --- Right: Observed vs Predicted bar by arm ---
+    groups = ["Control", "Treatment"]
+    obs_means = [y_test[mask_ctrl].mean(), y_test[mask_trt].mean()]
+    pred_means = [y_pred[mask_ctrl].mean(), y_pred[mask_trt].mean()]
+
+    from scipy import stats as sp_stats
+    obs_sem = [
+        sp_stats.sem(y_test[mask_ctrl]) if mask_ctrl.sum() > 1 else 0,
+        sp_stats.sem(y_test[mask_trt]) if mask_trt.sum() > 1 else 0,
+    ]
+    pred_sem = [
+        sp_stats.sem(y_pred[mask_ctrl]) if mask_ctrl.sum() > 1 else 0,
+        sp_stats.sem(y_pred[mask_trt]) if mask_trt.sum() > 1 else 0,
+    ]
+
+    x = np.arange(len(groups))
+    width = 0.35
+    ax2.bar(x - width / 2, obs_means, width,
+            color=CLINICAL_COLORS["primary"], label="Observed",
+            yerr=obs_sem, capsize=4, alpha=0.85)
+    ax2.bar(x + width / 2, pred_means, width,
+            color=CLINICAL_COLORS["secondary"], label="Predicted",
+            yerr=pred_sem, capsize=4, alpha=0.85)
+
+    # Annotate values
+    for i, (om, pm) in enumerate(zip(obs_means, pred_means)):
+        ax2.text(i - width / 2, om + 0.05, f"{om:.2f}",
+                 ha="center", va="bottom", fontsize=8)
+        ax2.text(i + width / 2, pm + 0.05, f"{pm:.2f}",
+                 ha="center", va="bottom", fontsize=8)
+
+    ax2.set_xticks(x)
+    ax2.set_xticklabels(groups)
+    ax2.set_ylabel("Mean Event Count")
+    ax2.set_title("B. Observed vs Predicted Count by Arm",
+                  fontsize=11, fontweight="bold", loc="left")
+    ax2.legend(fontsize=7, loc="upper right")
+
+    rr_obs = obs_means[1] / (obs_means[0] + 1e-10)
+    rr_pred = pred_means[1] / (pred_means[0] + 1e-10)
+    ax2.text(0.98, 0.05,
+             f"Obs RR = {rr_obs:.3f}\nPred RR = {rr_pred:.3f}",
+             transform=ax2.transAxes, fontsize=8,
+             ha="right", va="bottom",
+             bbox={"boxstyle": "round,pad=0.3", "facecolor": "lightgray", "alpha": 0.5})
+
+    fig.tight_layout()
+    _save(fig, prefix, "count_panel", output_dir)
     return fig
 
 
@@ -337,7 +537,7 @@ def plot_roc_curve(
     fpr, tpr, _ = roc_curve(y_test, y_prob)
     roc_auc = auc(fpr, tpr)
 
-    fig, ax = plt.subplots(figsize=(6, 6))
+    fig, ax = plt.subplots(figsize=(8, 4.5))
     ax.plot(fpr, tpr, color=CLINICAL_COLORS["primary"], linewidth=1.2,
             label=f"AUC = {roc_auc:.3f}")
     ax.plot([0, 1], [0, 1], color=CLINICAL_COLORS["neutral"],
@@ -372,9 +572,14 @@ def plot_summary_panel(
     Mimics the layout in the AKI prediction reference paper (Fig.3).
     """
     n_features = shap_values.shape[1]
+    # Align X rows with shap_values (may differ when survshap subsamples)
+    n_samples = shap_values.shape[0]
+    if X.shape[0] != n_samples:
+        X = X[:n_samples]
+
     importance_order = np.argsort(np.abs(shap_values).mean(axis=0))
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, max(4, n_features * 0.35)))
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(16, 9))
 
     shap_ordered = shap_values[:, importance_order]
     X_ordered = X[:, importance_order]
@@ -415,4 +620,223 @@ def plot_summary_panel(
 
     fig.tight_layout()
     _save(fig, prefix, "summary_panel", output_dir)
+    return fig
+
+
+# ---------------------------------------------------------------------------
+# SurvSHAP(t) Time-Dependent Plot (survival endpoint)
+# ---------------------------------------------------------------------------
+def plot_survshap_time(
+    survshap_values: np.ndarray,
+    feature_names: list[str],
+    times: np.ndarray,
+    output_dir: str | Path,
+    prefix: str,
+    max_features: int = 8,
+) -> plt.Figure:
+    """Plot SurvSHAP(t) values over time for top features.
+
+    Parameters
+    ----------
+    survshap_values : np.ndarray (n_features, n_times)
+        Time-dependent SHAP values aggregated across samples.
+    feature_names : list[str]
+    times : np.ndarray (n_times,)
+        Time grid points.
+    output_dir : str | Path
+    prefix : str
+    max_features : int
+        Number of top features to display (by mean absolute SHAP).
+    """
+    # Select top features by mean absolute SHAP across time
+    mean_abs = np.abs(survshap_values).mean(axis=1)
+    top_idx = np.argsort(mean_abs)[-max_features:]
+
+    colors_cycle = [
+        CLINICAL_COLORS["primary"], CLINICAL_COLORS["secondary"],
+        CLINICAL_COLORS["positive"], CLINICAL_COLORS["negative"],
+        CLINICAL_COLORS["treatment"], CLINICAL_COLORS["control"],
+        CLINICAL_COLORS["neutral"], "#e377c2",
+    ]
+
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+    for j, feat_idx in enumerate(top_idx):
+        color = colors_cycle[j % len(colors_cycle)]
+        ax.plot(times, survshap_values[feat_idx, :],
+                linewidth=1.2, color=color,
+                label=feature_names[feat_idx])
+
+    ax.axhline(y=0, color=CLINICAL_COLORS["neutral"], linestyle="--", linewidth=0.8)
+    ax.set_xlabel("Time")
+    ax.set_ylabel("SurvSHAP(t)")
+    ax.set_title("SurvSHAP(t) Time-Dependent Feature Effects",
+                 fontsize=12, fontweight="bold")
+    ax.legend(fontsize=7, loc="upper right")
+
+    fig.tight_layout()
+    _save(fig, prefix, "survshap_time", output_dir)
+    return fig
+
+
+def plot_survshap_panel(
+    survshap_values_3d: np.ndarray,
+    feature_names: list[str],
+    times: np.ndarray,
+    output_dir: str | Path,
+    prefix: str,
+    max_features: int = 8,
+) -> plt.Figure:
+    """Combined SurvSHAP(t) panel: time curves (left) + box plot (right).
+
+    Left: Mean SurvSHAP(t) over time for top features (line plot).
+    Right: Box plot of per-sample time-aggregated SHAP values,
+           showing the distribution of each feature's contribution
+           across subjects.
+
+    Parameters
+    ----------
+    survshap_values_3d : np.ndarray (n_samples, n_features, n_times)
+    feature_names : list[str]
+    times : np.ndarray (n_times,)
+    output_dir : str | Path
+    prefix : str
+    max_features : int
+    """
+    # Aggregate across samples for the time-plot (mean per feature per time)
+    sv_mean = survshap_values_3d.mean(axis=0)  # (n_features, n_times)
+
+    # Aggregate across time for the box plot (integral / mean per sample per feature)
+    # Use mean over time as the per-sample aggregate
+    sv_sample_agg = survshap_values_3d.mean(axis=2)  # (n_samples, n_features)
+
+    # Select top features by overall mean absolute SHAP
+    mean_abs = np.abs(sv_mean).mean(axis=1)
+    top_idx = np.argsort(mean_abs)[-max_features:]
+
+    colors_cycle = [
+        CLINICAL_COLORS["primary"], CLINICAL_COLORS["secondary"],
+        CLINICAL_COLORS["positive"], CLINICAL_COLORS["negative"],
+        CLINICAL_COLORS["treatment"], CLINICAL_COLORS["control"],
+        CLINICAL_COLORS["neutral"], "#e377c2",
+    ]
+
+    fig, (ax1, ax2) = plt.subplots(
+        1, 2, figsize=(16, 9),
+        gridspec_kw={"width_ratios": [1.2, 1]},
+    )
+
+    # Build consistent feature→color map (most important = colors_cycle[0])
+    feature_color = {}
+    for rank, feat_idx in enumerate(top_idx[::-1]):
+        feature_color[feat_idx] = colors_cycle[rank % len(colors_cycle)]
+
+    # --- Left: SurvSHAP(t) time curves ---
+    for j, feat_idx in enumerate(top_idx):
+        color = feature_color[feat_idx]
+        ax1.plot(times, sv_mean[feat_idx, :],
+                 linewidth=1.2, color=color,
+                 label=feature_names[feat_idx])
+
+    ax1.axhline(y=0, color=CLINICAL_COLORS["neutral"], linestyle="--", linewidth=0.8)
+    ax1.set_xlabel("Time")
+    ax1.set_ylabel("Mean SurvSHAP(t)")
+    ax1.set_title("A. SurvSHAP(t) Time-Dependent Effects",
+                  fontsize=11, fontweight="bold", loc="left")
+    ax1.legend(fontsize=7, loc="upper right")
+
+    # --- Right: Box plot (vertical, most important leftmost) ---
+    box_data = []
+    box_labels = []
+    box_colors = []
+    for feat_idx in top_idx[::-1]:  # most important → least important (left→right)
+        box_data.append(sv_sample_agg[:, feat_idx])
+        box_labels.append(feature_names[feat_idx])
+        box_colors.append(feature_color[feat_idx])
+
+    bp = ax2.boxplot(
+        box_data, vert=True, patch_artist=True, widths=0.6,
+        medianprops={"color": "black", "linewidth": 0.8},
+        flierprops={"marker": "o", "markersize": 3,
+                    "markerfacecolor": "gray", "alpha": 0.4},
+        whiskerprops={"linewidth": 0.6},
+        capprops={"linewidth": 0.6},
+        boxprops={"linewidth": 0.6},
+    )
+    for patch, color in zip(bp["boxes"], box_colors):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.5)
+
+    ax2.set_xticklabels(box_labels, rotation=30, ha="right", fontsize=8)
+    ax2.axhline(y=0, color=CLINICAL_COLORS["neutral"], linestyle="--", linewidth=0.8)
+    ax2.set_ylabel("Time-Aggregated SHAP Value")
+    ax2.set_title("B. Per-Subject SHAP Distribution",
+                  fontsize=11, fontweight="bold", loc="left")
+
+    fig.tight_layout()
+    _save(fig, prefix, "survshap_panel", output_dir)
+    return fig
+
+
+def plot_survshap_aggregated(
+    survshap_values: np.ndarray,
+    X: np.ndarray,
+    feature_names: list[str],
+    output_dir: str | Path,
+    prefix: str,
+    sample_idx: int = 0,
+    times: Optional[np.ndarray] = None,
+) -> plt.Figure:
+    """SurvSHAP(t) aggregated decomposition for a single subject.
+
+    Shows how each feature contributes to the survival function over time
+    for a given individual — stacked area style.
+
+    Parameters
+    ----------
+    survshap_values : np.ndarray (n_samples, n_features, n_times)
+    X : np.ndarray
+    feature_names : list[str]
+    output_dir : str | Path
+    prefix : str
+    sample_idx : int
+    times : np.ndarray (n_times,), optional
+        Actual time grid. Defaults to linspace(0, 1, n_times).
+    """
+    sample_shap = survshap_values[sample_idx]  # (n_features, n_times)
+    if times is None:
+        times = np.linspace(0, 1, sample_shap.shape[1])
+
+    fig, ax = plt.subplots(figsize=(8, 4.5))
+
+    # Sort features by mean abs contribution
+    order = np.argsort(np.abs(sample_shap).mean(axis=1))[::-1]
+    top_n = min(8, len(order))
+    top_order = order[:top_n]
+
+    colors_cycle = [
+        CLINICAL_COLORS["primary"], CLINICAL_COLORS["negative"],
+        CLINICAL_COLORS["positive"], CLINICAL_COLORS["secondary"],
+        CLINICAL_COLORS["treatment"], CLINICAL_COLORS["control"],
+        CLINICAL_COLORS["neutral"], "#e377c2",
+    ]
+
+    cumsum = np.zeros(sample_shap.shape[1])
+    for j, feat_idx in enumerate(top_order):
+        color = colors_cycle[j % len(colors_cycle)]
+        vals = sample_shap[feat_idx, :]
+        ax.fill_between(times, cumsum, cumsum + vals,
+                        color=color, alpha=0.25)
+        ax.plot(times, cumsum + vals, color=color, linewidth=1.0,
+                label=feature_names[feat_idx])
+        cumsum += vals
+
+    ax.axhline(y=0, color=CLINICAL_COLORS["neutral"], linestyle="--", linewidth=0.8)
+    ax.set_xlabel("Time")
+    ax.set_ylabel("SurvSHAP(t)")
+    ax.set_title(f"SurvSHAP(t) Decomposition (sample #{sample_idx})",
+                 fontsize=12, fontweight="bold")
+    ax.legend(fontsize=7, loc="upper right")
+
+    fig.tight_layout()
+    _save(fig, prefix, f"survshap_decomp_sample{sample_idx}", output_dir)
     return fig
