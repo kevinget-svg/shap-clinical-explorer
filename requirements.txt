@@ -1,3 +1,6 @@
+# SHAP Clinical Explorer – Streamlit Cloud deployment
+# Auto-generated from pyproject.toml dependencies
+
 # Core Data & Numerics
 numpy>=2.0,<2.3
 pandas>=2.2,<2.3
@@ -9,6 +12,7 @@ survshap>=0.4,<0.5
 # Machine Learning
 scikit-learn>=1.5,<1.7
 xgboost>=2.1,<3.0
+scikit-survival>=0.22,<0.24
 
 # Statistical Modeling
 statsmodels>=0.14,<0.15
@@ -20,10 +24,5 @@ openpyxl>=3.1,<4.0
 # Visualization
 matplotlib>=3.9,<4.0
 
-# Testing
-pytest>=8.3,<9.0
-pytest-cov>=5.0,<6.0
-
-# Linting & Type Checking
-ruff>=0.6,<1.0
-mypy>=1.11,<2.0
+# Web App
+streamlit>=1.40,<2.0
