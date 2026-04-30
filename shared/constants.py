@@ -50,8 +50,8 @@ ADLB_REQUIRED_COLS: list[str] = [
 from shared.config import EndpointType
 
 ENDPOINT_MODEL_MAP: dict[EndpointType, list[str]] = {
-    EndpointType.CONTINUOUS: ["linear_regression", "random_forest", "xgboost"],
-    EndpointType.BINARY: ["logistic_regression", "xgboost_classifier", "random_forest_classifier"],
-    EndpointType.SURVIVAL: ["cox_ph", "random_survival_forest"],
-    EndpointType.COUNT: ["poisson_glm", "negative_binomial"],
+    EndpointType.CONTINUOUS: ["xgb", "rf", "glm"],
+    EndpointType.BINARY: ["xgb", "rf", "glm"],
+    EndpointType.SURVIVAL: ["rsf", "cox"],
+    EndpointType.COUNT: ["xgb", "rf", "glm"],
 }

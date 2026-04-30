@@ -336,7 +336,7 @@ output/ (*.csv, *.png, *.svg)
 # Install dependencies
 pip install -r requirements.txt
 
-# Run full pipeline (once implemented)
+# Run full pipeline
 python -m code.pipeline --input data/your_trial.sas7bdat --output output/
 
 # Run tests
