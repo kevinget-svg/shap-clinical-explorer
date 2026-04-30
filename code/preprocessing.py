@@ -119,6 +119,11 @@ class Preprocessor:
         cat_cols_present = [c for c in self._categorical_cols if c in df.columns]
         if cat_cols_present:
             df = pd.get_dummies(df, columns=cat_cols_present, drop_first=False)
+            # get_dummies produces bool columns in pandas >= 2.0;
+            # convert to int so select_dtypes(exclude='number') doesn't drop them
+            bool_cols = df.select_dtypes(include=[bool]).columns.tolist()
+            if bool_cols:
+                df = df.astype({c: int for c in bool_cols})
 
         # Drop any remaining non-numeric (e.g., USUBJID)
         non_num = df.select_dtypes(exclude="number").columns
@@ -135,14 +140,18 @@ class Preprocessor:
         target_col: str,
         design: TrialDesign = TrialDesign.RCT_TWO_ARM,
     ) -> pd.DataFrame:
-        """Fit and transform in one call."""
+        """Fit and transform in one call. Target column is automatically dropped."""
         self.fit(df, target_col, design)
-        return self.transform(df)
+        # Drop target + ID before transform
+        feature_df = df.drop(columns=[target_col], errors="ignore")
+        if "USUBJID" in feature_df.columns:
+            feature_df = feature_df.drop(columns=["USUBJID"])
+        return self.transform(feature_df)
 
 
 def split_train_test(
     X: pd.DataFrame,
-    y: pd.Series,
+    y: pd.Series | np.ndarray,
     treatment_col: Optional[str] = None,
     train_size: float = TRAIN_SIZE,
     random_state: int = SEED,
@@ -153,10 +162,11 @@ def split_train_test(
     ----------
     X : pd.DataFrame
         Feature matrix.
-    y : pd.Series
-        Target values.
+    y : pd.Series or np.ndarray
+        Target values. For survival endpoints this is a structured array
+        with 'event' and 'time' fields.
     treatment_col : str, optional
-        Column name for the treatment arm indicator. If present and,
+        Column name for the treatment arm indicator. If present and
         ``TrialDesign`` is RCT, splitting is stratified by this column.
     train_size : float
         Proportion for training set.
@@ -166,10 +176,16 @@ def split_train_test(
     -------
     X_train, X_test, y_train, y_test : np.ndarray
     """
+    # For survival structured arrays, use event indicator for stratification
     stratify = None
     if treatment_col and treatment_col in X.columns:
         stratify = X[treatment_col]
         logger.info(f"Stratified split by '{treatment_col}'")
+    elif hasattr(y, "dtype") and hasattr(y.dtype, "names") and y.dtype.names is not None:
+        # Survival structured array: stratify by event indicator
+        event_field = y.dtype.names[0]
+        stratify = y[event_field]
+        logger.info(f"Stratified split by survival event indicator")
 
     X_train, X_test, y_train, y_test = train_test_split(
         X, y,
@@ -178,7 +194,8 @@ def split_train_test(
         stratify=stratify,
     )
     logger.info(
-        f"Split: train={X_train.shape[0]}, test={X_test.shape[0]}  "
+        f"Split: train={len(X_train) if hasattr(X_train, '__len__') else X_train.shape[0]}, "
+        f"test={len(X_test) if hasattr(X_test, '__len__') else X_test.shape[0]}  "
         f"(ratio={train_size:.0%}/{1 - train_size:.0%})"
     )
     return (
