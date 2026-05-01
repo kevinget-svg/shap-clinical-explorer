@@ -8,12 +8,12 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from code.data_loader import (
+from core.data_loader import (
     load_clinical_data,
     validate_clinical_data,
     get_data_summary,
 )
-from code.synthetic_data import get_demo_data
+from core.synthetic_data import get_demo_data
 
 
 class TestLoadClinicalData:

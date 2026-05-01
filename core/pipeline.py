@@ -93,7 +93,7 @@ Examples:
 # ---------------------------------------------------------------------------
 def step_load(input_path: Path) -> pd.DataFrame:
     """[Step 1] Load and validate raw clinical data."""
-    from code.data_loader import load_clinical_data, get_data_summary
+    from core.data_loader import load_clinical_data, get_data_summary
     logger.info(f"Loading data: {input_path}")
     df = load_clinical_data(input_path)
     logger.info(get_data_summary(df))
@@ -111,7 +111,7 @@ def step_preprocess(
     Returns: X_train, X_test, y_train, y_test, feature_names, X_train_df, X_test_df
     The DataFrame versions are used by survshap (survival endpoint).
     """
-    from code.preprocessing import Preprocessor, split_train_test
+    from core.preprocessing import Preprocessor, split_train_test
     logger.info(f"Preprocessing: target={target_col}, design={design.value}")
 
     preprocessor = Preprocessor()
@@ -164,7 +164,7 @@ def step_model(
 
     Returns: (trained_model, metrics_dict, actual_model_type)
     """
-    from code.modeling import ModelTrainer
+    from core.modeling import ModelTrainer
     logger.info(f"Modeling: endpoint={endpoint.value}, model={model_choice}")
 
     trainer = ModelTrainer()
@@ -199,7 +199,7 @@ def step_shap(
     Returns: (shap_values, shap_df, importance_df, analyzer)
     The analyzer object carries survshap 3D data for survival plots.
     """
-    from code.shap_analysis import SHAPAnalyzer
+    from core.shap_analysis import SHAPAnalyzer
     logger.info("Computing SHAP values")
 
     analyzer = SHAPAnalyzer()
@@ -240,7 +240,7 @@ def step_visualize(
     Filename convention: {design_label}_{endpoint_label}_{plot_type}.{fmt}
     e.g. RCT_BINARY_beeswarm.png, SIG_CONTINUOUS_summary_bar.svg
     """
-    from code.visualization import (
+    from core.visualization import (
         plot_beeswarm, plot_summary_bar, plot_dependence,
         plot_waterfall, plot_rct_comparison, plot_summary_panel,
         plot_roc_curve, plot_survshap_time, plot_survshap_aggregated,

@@ -6,8 +6,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from code.preprocessing import Preprocessor, split_train_test
-from code.synthetic_data import get_demo_data
+from core.preprocessing import Preprocessor, split_train_test
+from core.synthetic_data import get_demo_data
 from shared.config import TrialDesign, SEED
 
 

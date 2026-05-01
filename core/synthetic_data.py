@@ -6,7 +6,7 @@ for Continuous endpoint × 2-arm design.
 
 Usage:
     python -m code.synthetic_data                    # Generate and save to data/
-    from code.synthetic_data import get_demo_data    # In-memory for tests
+    from core.synthetic_data import get_demo_data    # In-memory for tests
 """
 
 from __future__ import annotations

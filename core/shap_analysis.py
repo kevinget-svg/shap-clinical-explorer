@@ -106,7 +106,11 @@ class SHAPAnalyzer:
         else:
             self.shap_values_ = explainer.shap_values(X_test_f)
         if isinstance(self.shap_values_, list):
-            self.shap_values_ = self.shap_values_[0]
+            # Multi-class: take positive class
+            self.shap_values_ = self.shap_values_[1]
+        elif self.shap_values_.ndim == 3:
+            # Binary classification: (n_samples, n_features, 2) → positive class
+            self.shap_values_ = self.shap_values_[:, :, 1]
         logger.info(f"SHAP values shape: {self.shap_values_.shape}")
         return self.shap_values_
 

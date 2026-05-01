@@ -29,16 +29,19 @@ dev = [
     "ruff>=0.6,<1.0",
     "mypy>=1.11,<2.0",
 ]
+viz = [
+    "streamlit>=1.40,<2.0",
+]
 
 [project.scripts]
-shap-pipeline = "code.pipeline:main"
+shap-pipeline = "core.pipeline:main"
 
 [build-system]
 requires = ["setuptools>=75"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-packages = { find = { where = ["."], include = ["shared", "code"] } }
+packages = { find = { where = ["."], include = ["shared", "core"] } }
 
 # ---------------------------------------------------------------------------
 # Ruff (lint & format)

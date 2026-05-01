@@ -9,16 +9,16 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from code.modeling import ModelTrainer
-from code.preprocessing import Preprocessor, split_train_test
-from code.shap_analysis import SHAPAnalyzer
-from code.synthetic_data import (
+from core.modeling import ModelTrainer
+from core.preprocessing import Preprocessor, split_train_test
+from core.shap_analysis import SHAPAnalyzer
+from core.synthetic_data import (
     get_demo_data,
     get_demo_data_binary,
     get_demo_data_survival,
     get_demo_data_count,
 )
-from code.visualization import (
+from core.visualization import (
     plot_beeswarm,
     plot_summary_bar,
     plot_dependence,
