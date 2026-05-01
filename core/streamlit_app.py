@@ -24,38 +24,47 @@ if str(_sys_project_root) not in sys.path:
 import numpy as np
 import pandas as pd
 import streamlit as st
-import shap
 
-from shared.config import (
-    EndpointType,
-    TrialDesign,
-    SEED,
-    OUTPUT_DIR,
-)
-from core.synthetic_data import (
-    get_demo_data,
-    get_demo_data_binary,
-    get_demo_data_survival,
-    get_demo_data_count,
-)
-from core.preprocessing import Preprocessor, split_train_test
-from core.modeling import ModelTrainer
-from core.shap_analysis import SHAPAnalyzer
-from core.visualization import (
-    plot_beeswarm,
-    plot_summary_bar,
-    plot_dependence,
-    plot_waterfall,
-    plot_rct_comparison,
-    plot_summary_panel,
-    plot_roc_curve,
-    plot_survshap_panel,
-    plot_survshap_aggregated,
-    plot_count_obs_vs_pred,
-    plot_count_panel,
-    make_prefix,
-    _save,
-)
+# ---------------------------------------------------------------------------
+# Deployment diagnostics: catch import errors early so the real error message
+# is visible in the Streamlit UI instead of being redacted by the platform.
+# ---------------------------------------------------------------------------
+try:
+    import shap
+    from shared.config import (
+        EndpointType,
+        TrialDesign,
+        SEED,
+        OUTPUT_DIR,
+    )
+    from core.synthetic_data import (
+        get_demo_data,
+        get_demo_data_binary,
+        get_demo_data_survival,
+        get_demo_data_count,
+    )
+    from core.preprocessing import Preprocessor, split_train_test
+    from core.modeling import ModelTrainer
+    from core.shap_analysis import SHAPAnalyzer
+    from core.visualization import (
+        plot_beeswarm,
+        plot_summary_bar,
+        plot_dependence,
+        plot_waterfall,
+        plot_rct_comparison,
+        plot_summary_panel,
+        plot_roc_curve,
+        plot_survshap_panel,
+        plot_survshap_aggregated,
+        plot_count_obs_vs_pred,
+        plot_count_panel,
+        make_prefix,
+        _save,
+    )
+except Exception:
+    import traceback
+    st.error(f"Import failed:\n\n```\n{traceback.format_exc()}\n```")
+    st.stop()
 
 # ---------------------------------------------------------------------------
 # Page config
