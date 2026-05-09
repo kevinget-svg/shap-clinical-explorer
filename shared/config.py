@@ -8,7 +8,7 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
 DATA_DIR: Path = PROJECT_ROOT / "data"
-CODE_DIR: Path = PROJECT_ROOT / "code"
+CORE_DIR: Path = PROJECT_ROOT / "core"
 OUTPUT_DIR: Path = PROJECT_ROOT / "output"
 
 # Ensure output directory exists
@@ -43,10 +43,31 @@ class TrialDesign(StrEnum):
 
 
 # ---------------------------------------------------------------------------
+# SHAP computation parameters
+# ---------------------------------------------------------------------------
+# Background sample size for TreeExplainer / KernelExplainer (non-survival)
+SHAP_BG_SAMPLES: int = 100
+# Background sample size for SurvSHAP(t)
+SURVSHAP_BG_SAMPLES: int = 80
+# Max test-set rows explained by SurvSHAP(t) (limits runtime)
+SURVSHAP_MAX_SAMPLES: int = 50
+
+# ---------------------------------------------------------------------------
 # Publication-ready visualization settings
 # ---------------------------------------------------------------------------
 FIGURE_DPI: int = 300
 FIGURE_FORMATS: list[str] = ["png", "svg"]
+
+# Beeswarm plot
+BEESWARM_POINT_SIZE: int = 8
+BEESWARM_POINT_SIZE_LARGE_N: int = 3
+BEESWARM_LARGE_N_THRESHOLD: int = 1000
+BEESWARM_ALPHA: float = 0.6
+BEESWARM_JITTER: float = 0.15
+
+# Dependence plot
+DEPENDENCE_POINT_SIZE: int = 6
+DEPENDENCE_ALPHA: float = 0.5
 
 # Clinical color palette (color-blind friendly, journal-safe)
 CLINICAL_COLORS: dict[str, str] = {

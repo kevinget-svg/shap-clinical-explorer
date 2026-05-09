@@ -27,14 +27,26 @@ _READERS = {
 
 
 def _read_sas(path: Path) -> pd.DataFrame:
-    import pyreadstat
+    try:
+        import pyreadstat
+    except ImportError:
+        raise ImportError(
+            "Reading .sas7bdat files requires pyreadstat. "
+            "Install it with: pip install pyreadstat"
+        )
     df, meta = pyreadstat.read_sas7bdat(str(path))
     logger.info(f"SAS metadata: {meta.column_names_to_labels}")
     return df
 
 
 def _read_rdata(path: Path) -> pd.DataFrame:
-    import pyreadstat
+    try:
+        import pyreadstat
+    except ImportError:
+        raise ImportError(
+            "Reading .RData files requires pyreadstat. "
+            "Install it with: pip install pyreadstat"
+        )
     df, meta = pyreadstat.read_rdata(str(path))
     # RData may contain multiple dataframes; return the first
     if isinstance(df, dict):

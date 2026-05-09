@@ -26,6 +26,12 @@ from shared.config import (
     SHAP_COLORMAP,
     FIGURE_DPI,
     FIGURE_FORMATS,
+    SEED,
+    BEESWARM_POINT_SIZE,
+    BEESWARM_ALPHA,
+    BEESWARM_JITTER,
+    DEPENDENCE_POINT_SIZE,
+    DEPENDENCE_ALPHA,
     setup_matplotlib_style,
     TrialDesign,
     EndpointType,
@@ -112,11 +118,12 @@ def plot_beeswarm(
     for i in range(n_features):
         y_pos = np.full(shap_ordered.shape[0], i)
         vals = shap_ordered[:, i]
-        jitter = np.random.default_rng(42).uniform(-0.15, 0.15, len(vals))
+        jitter = np.random.default_rng(SEED).uniform(
+            -BEESWARM_JITTER, BEESWARM_JITTER, len(vals))
         sc = ax.scatter(
             vals, y_pos + jitter,
             c=X_ordered[:, i], cmap=colors,
-            s=8, alpha=0.6, edgecolors="none",
+            s=BEESWARM_POINT_SIZE, alpha=BEESWARM_ALPHA, edgecolors="none",
         )
 
     ax.axvline(x=0, color=CLINICAL_COLORS["neutral"], linestyle="--", linewidth=0.8)
@@ -200,7 +207,7 @@ def plot_dependence(
     sc = ax.scatter(
         feat_vals, shap_values[:, idx],
         c=X[:, interaction_idx], cmap=colors,
-        s=6, alpha=0.5, edgecolors="none",
+        s=DEPENDENCE_POINT_SIZE, alpha=DEPENDENCE_ALPHA, edgecolors="none",
     )
     ax.axhline(y=0, color=CLINICAL_COLORS["neutral"], linestyle="--", linewidth=0.8)
     ax.set_xlabel(target_feature)
@@ -592,11 +599,12 @@ def plot_summary_panel(
     for i in range(n_features):
         y_pos = np.full(shap_ordered.shape[0], i)
         vals = shap_ordered[:, i]
-        jitter = np.random.default_rng(42).uniform(-0.15, 0.15, len(vals))
+        jitter = np.random.default_rng(SEED).uniform(
+            -BEESWARM_JITTER, BEESWARM_JITTER, len(vals))
         sc = ax1.scatter(
             vals, y_pos + jitter,
             c=X_ordered[:, i], cmap=colors,
-            s=8, alpha=0.6, edgecolors="none",
+            s=BEESWARM_POINT_SIZE, alpha=BEESWARM_ALPHA, edgecolors="none",
         )
     ax1.axvline(x=0, color=CLINICAL_COLORS["neutral"], linestyle="--", linewidth=0.8)
     ax1.set_yticks(range(n_features))

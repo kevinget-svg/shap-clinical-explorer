@@ -140,9 +140,15 @@ class Preprocessor:
         target_col: str,
         design: TrialDesign = TrialDesign.RCT_TWO_ARM,
     ) -> pd.DataFrame:
-        """Fit and transform in one call. Target column is automatically dropped."""
+        """Fit and transform in one call. Target column is automatically dropped.
+
+        The explicit drop of target_col + USUBJID before calling transform()
+        is intentional, not redundant with fit().  transform() does not know
+        which columns are targets/IDs — if target_col is numeric (e.g. AVAL
+        for continuous endpoints) it would silently pass through and leak into
+        the feature matrix.
+        """
         self.fit(df, target_col, design)
-        # Drop target + ID before transform
         feature_df = df.drop(columns=[target_col], errors="ignore")
         if "USUBJID" in feature_df.columns:
             feature_df = feature_df.drop(columns=["USUBJID"])

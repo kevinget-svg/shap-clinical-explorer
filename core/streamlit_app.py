@@ -36,6 +36,8 @@ try:
         TrialDesign,
         SEED,
         OUTPUT_DIR,
+        SHAP_BG_SAMPLES,
+        SURVSHAP_MAX_SAMPLES,
     )
     from core.synthetic_data import (
         get_demo_data,
@@ -164,7 +166,7 @@ def run_analysis(
     if endpoint == EndpointType.SURVIVAL:
         shap_vals = analyzer.compute_survival(
             model, X_train_df, X_test_df, ytr, feature_names,
-            model_type=actual_type, max_samples=50,
+            model_type=actual_type, max_samples=SURVSHAP_MAX_SAMPLES,
         )
         survshap_3d = analyzer.survshap_values_
         survshap_times = analyzer.survshap_times_
@@ -174,7 +176,7 @@ def run_analysis(
         Xte = Xte[:n_sv]
         yte = yte[:n_sv]
     else:
-        shap_vals = analyzer.compute(model, Xtr, Xte, model_type=actual_type, max_samples=100)
+        shap_vals = analyzer.compute(model, Xtr, Xte, model_type=actual_type, max_samples=SHAP_BG_SAMPLES)
         survshap_3d = None
         survshap_times = None
 

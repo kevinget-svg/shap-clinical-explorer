@@ -4,8 +4,8 @@ SHAP Clinical Analysis Pipeline
 Full pipeline from raw clinical data to SHAP-based visualization outputs.
 
 Usage:
-    python -m code.pipeline --input data/trial.sas7bdat --output output/ --target AVAL
-    python -m code.pipeline --input data/trial.xlsx --output output/ --target outcome --design rct_2_arm
+    python -m core.pipeline --input data/trial.sas7bdat --output output/ --target AVAL
+    python -m core.pipeline --input data/trial.xlsx --output output/ --target outcome --design rct_2_arm
 
 Architecture:
     Raw Data  →  [1] load  →  [2] preprocess  →  [3] model  →  [4] shap  →  [5] visualize  →  output/
@@ -42,9 +42,9 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python -m code.pipeline -i data/study.sas7bdat -t AVAL -e continuous
-  python -m code.pipeline -i data/study.xlsx -t outcome -e binary -d rct_2_arm
-  python -m code.pipeline -i data/study.sas7bdat -t AVAL -e survival -c CNSR -d single_arm
+  python -m core.pipeline -i data/study.sas7bdat -t AVAL -e continuous
+  python -m core.pipeline -i data/study.xlsx -t outcome -e binary -d rct_2_arm
+  python -m core.pipeline -i data/study.sas7bdat -t AVAL -e survival -c CNSR -d single_arm
         """,
     )
     parser.add_argument(

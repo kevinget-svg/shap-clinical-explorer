@@ -1,7 +1,7 @@
 from shared.config import (
     PROJECT_ROOT,
     DATA_DIR,
-    CODE_DIR,
+    CORE_DIR,
     OUTPUT_DIR,
     SEED,
     TRAIN_SIZE,
@@ -14,6 +14,14 @@ from shared.config import (
     FIGURE_FORMATS,
     CLINICAL_COLORS,
     SHAP_COLORMAP,
+    SHAP_BG_SAMPLES,
+    SURVSHAP_BG_SAMPLES,
+    SURVSHAP_MAX_SAMPLES,
+    BEESWARM_POINT_SIZE,
+    BEESWARM_ALPHA,
+    BEESWARM_JITTER,
+    DEPENDENCE_POINT_SIZE,
+    DEPENDENCE_ALPHA,
     setup_matplotlib_style,
     setup_logging,
 )

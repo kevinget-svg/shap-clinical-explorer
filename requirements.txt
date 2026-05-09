@@ -1,28 +1,31 @@
 # SHAP Clinical Explorer – Streamlit Cloud deployment
-# Auto-generated from pyproject.toml dependencies
+# Minimal dependencies for Demo mode (continuous / binary / count endpoints)
 
 # Core Data & Numerics
-numpy>=2.0,<2.3
-pandas>=2.2,<2.3
+numpy>=2.0
+pandas>=2.2
 
-# SHAP & Survival SHAP
-shap>=0.46,<0.47
-survshap>=0.4,<0.5
+# SHAP
+shap>=0.46
 
 # Machine Learning
-scikit-learn>=1.5,<1.7
-xgboost>=2.1,<3.0
-scikit-survival>=0.22,<0.24
+scikit-learn>=1.5
+xgboost>=2.1
 
 # Statistical Modeling
-statsmodels>=0.14,<0.15
-
-# Data I/O
-pyreadstat>=1.2,<2.0
-openpyxl>=3.1,<4.0
+statsmodels>=0.14
 
 # Visualization
-matplotlib>=3.9,<4.0
+matplotlib>=3.9
 
 # Web App
-streamlit>=1.40,<2.0
+streamlit>=1.40
+
+# ---------------------------------------------------------------------------
+# Uncomment for Survival endpoint support:
+# scikit-survival>=0.22
+# survshap>=0.4
+
+# Uncomment for file-upload support (.sas7bdat / .xlsx):
+# pyreadstat>=1.2
+# openpyxl>=3.1

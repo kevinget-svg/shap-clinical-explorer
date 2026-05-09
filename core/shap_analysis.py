@@ -16,6 +16,8 @@ import numpy as np
 import pandas as pd
 import shap
 
+from shared.config import SURVSHAP_BG_SAMPLES
+
 from shared.config import SEED
 
 logger = logging.getLogger(__name__)
@@ -164,7 +166,7 @@ class SHAPAnalyzer:
         # Subsample to control runtime
         n_test = min(X_test.shape[0], max_samples)
         X_test_sub = X_test.iloc[:n_test]
-        n_train_bg = min(X_train.shape[0], 80)
+        n_train_bg = min(X_train.shape[0], SURVSHAP_BG_SAMPLES)
         X_train_bg = X_train.iloc[:n_train_bg]
 
         # Use sampling for all survival models (treeshap has additivity
