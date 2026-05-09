@@ -34,7 +34,7 @@ The emphasis is on **interpretability**: the project exists to explain model dec
 ```
 SHAP/
 ├── data/           # Raw datasets (.sas7bdat, .RData, .xlsx). READ-ONLY.
-├── code/           # Core logic scripts: data cleaning, modeling, visualization
+├── core/           # Core logic scripts: data cleaning, modeling, visualization
 │   ├── __init__.py
 │   ├── data_loader.py       # Read & validate clinical data files
 │   ├── preprocessing.py     # ADaM-standard cleaning & feature engineering
@@ -47,7 +47,7 @@ SHAP/
 │   └── constants.py         # Clinical domain constants (endpoint types, trial designs)
 ├── output/         # Generated model results, SHAP value CSVs, final figures
 ├── reference/      # Key literature: methodology references for SHAP & clinical prediction
-├── tests/          # Unit tests mirroring code/ structure
+├── tests/          # Unit tests mirroring core/ structure
 │   ├── __init__.py
 │   ├── test_data_loader.py
 │   ├── test_preprocessing.py
@@ -116,7 +116,7 @@ pytest tests/ -v
 pytest tests/test_modeling.py -v
 
 # With coverage report
-pytest tests/ -v --cov=code --cov-report=term-missing
+pytest tests/ -v --cov=core --cov-report=term-missing
 ```
 
 ### 5.2 Visualization Standards (Publication-Ready)
@@ -292,10 +292,10 @@ def save_figure(fig, filename: str, formats: list[str] = ["png", "svg"]) -> None
 
 ```bash
 # Lint
-ruff check code/ tests/
+ruff check core/ tests/
 
 # Type check
-mypy code/ --strict
+mypy core/ --strict
 ```
 
 ### 5.4 Commit Messages
@@ -337,20 +337,20 @@ output/ (*.csv, *.png, *.svg)
 pip install -r requirements.txt
 
 # Run full pipeline
-python -m code.pipeline --input data/your_trial.sas7bdat --output output/
+python -m core.pipeline --input data/your_trial.sas7bdat --output output/
 
 # Run tests
 pytest tests/ -v
 
 # Lint + type check
-ruff check code/ tests/ && mypy code/ --strict
+ruff check core/ tests/ && mypy core/ --strict
 ```
 
 ---
 
 ## 7. SHAP Methodological Foundations
 
-All algorithms implemented in `code/` must be grounded in the following theoretical framework. The `reference/` directory contains the primary literature; every design choice should be traceable to one of these sources.
+All algorithms implemented in `core/` must be grounded in the following theoretical framework. The `reference/` directory contains the primary literature; every design choice should be traceable to one of these sources.
 
 ### 7.1 Reference Literature
 

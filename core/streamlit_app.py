@@ -2,8 +2,8 @@
 Streamlit interactive dashboard for SHAP-based clinical trial analysis.
 
 Usage:
-    streamlit run code/streamlit_app.py
-    python -m streamlit run code/streamlit_app.py
+    streamlit run core/streamlit_app.py
+    python -m streamlit run core/streamlit_app.py
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import zipfile
 from pathlib import Path
 from typing import Optional
 
-# Ensure project root takes precedence over stdlib 'code' module (Python ≥3.12)
+# Ensure project root is on sys.path for internal imports
 _sys_project_root = Path(__file__).resolve().parent.parent
 if str(_sys_project_root) not in sys.path:
     sys.path.insert(0, str(_sys_project_root))
