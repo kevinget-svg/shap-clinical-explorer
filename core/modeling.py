@@ -24,10 +24,6 @@ from sklearn.metrics import (
     roc_auc_score, accuracy_score,
 )
 import xgboost as xgb
-from sksurv.ensemble import RandomSurvivalForest
-from sksurv.linear_model import CoxPHSurvivalAnalysis
-from sksurv.metrics import concordance_index_censored
-from sksurv.util import Surv
 
 from shared.config import (
     SEED,
@@ -175,6 +171,8 @@ class ModelTrainer:
             raise RuntimeError("No trained model. Call .train() first.")
 
         if self._is_survival_:
+            from sksurv.metrics import concordance_index_censored
+
             risk_scores = self.model_.predict(X_test)
             c_index = concordance_index_censored(
                 y_test["event"].astype(bool), y_test["time"], risk_scores
@@ -419,11 +417,15 @@ class ModelTrainer:
         return self._train_cox(X, y, n)
 
     def _train_cox(self, X: np.ndarray, y: np.ndarray, n: int) -> Any:
+        from sksurv.linear_model import CoxPHSurvivalAnalysis
+
         model = CoxPHSurvivalAnalysis(alpha=1.0)
         model.fit(X, y)
         return model
 
     def _train_rsf(self, X: np.ndarray, y: np.ndarray, n: int) -> Any:
+        from sksurv.ensemble import RandomSurvivalForest
+
         if self._should_tune(n):
             gs = GridSearchCV(
                 RandomSurvivalForest(random_state=self.random_state, n_jobs=-1),
