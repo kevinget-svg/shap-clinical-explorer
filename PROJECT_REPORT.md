@@ -486,7 +486,50 @@ except Exception:
 - 抽样后务必同步对齐 `X_test`/`y_test` 的行数，避免后续可视化函数形状不匹配。
 - 建议在 UI 中提示用户 SurvSHAP 结果为近似估计，可通过增加 `max_samples` 提高精度（但影响响应时间）。
 
-### 7.6 其他
+### 7.6 Streamlit `import` 缓存导致 Widget 交互失效
+
+**问题：** 根入口 `streamlit_app.py` 使用 `import core.streamlit_app` 加载真正的 App 代码。第一次运行时 Python 执行模块代码并缓存到 `sys.modules`，Streamlit UI 正常渲染。但当用户在 Tab 2 改变下拉框时，Streamlit 重跑根入口脚本，`import` 返回的是 `sys.modules` 中已缓存的模块——**模块级 UI 代码（`st.sidebar`、`st.tabs` 等）不再执行**，页面内容消失，用户看到白屏或跳回首页。
+
+**根因：** Streamlit 在一轮 rerun 中不会重新 import 已缓存的 Python 模块。而 App 的 UI 渲染逻辑全部放在模块顶层，这些代码只在首次 import 时执行一次。
+
+**修复：** 将根入口的 `import core.streamlit_app` 替换为 `exec()` 内联执行源码：
+
+```python
+# 旧方案（有 bug）：
+import core.streamlit_app
+
+# 新方案（正确）：
+_app_path = _project_root / "core" / "streamlit_app.py"
+_source = _app_path.read_text()
+_code = compile(_source, str(_app_path), "exec")
+exec(_code, {"__name__": "__main__", "__file__": str(_app_path)})
+```
+
+**关键细节：** `exec()` 的 globals 字典中必须显式传入 `__file__`，因为 `core/streamlit_app.py` 内部使用 `Path(__file__).resolve().parent.parent` 定位项目根目录。`exec` 不会像 `import` 那样自动设置 `__file__`。
+
+**避免方法：**
+- 如果使用根 wrapper + import 模式部署 Streamlit App，务必在 wrapper 中使用 `exec()` 而非 `import`。
+- 或者直接取消 wrapper，将 App 代码内联到 Streamlit Cloud 期望的入口文件中。
+- 即使 App 第一版能正常渲染，也要测试 widget 交互（切换下拉框、滑动滑块、点击按钮）确认 rerun 后 UI 不丢失。
+
+### 7.7 可选依赖的导入策略
+
+**问题：** 为精简 `requirements.txt` 将 `scikit-survival` 和 `survshap` 注释掉，但 `core/modeling.py` 在模块顶层 `import sksurv`。选择非 Survival endpoint 时 App 正常，但选择 Survival endpoint 时触发 `ModuleNotFoundError`。
+
+**根因：** 两个因素叠加导致：
+1. 部署依赖列表中移除了 Survival 端点需要的包。
+2. 模块顶层无条件 `import sksurv`，即使当前请求不需要 Survival 功能也会触发导入错误。
+
+**修复（两步）：**
+1. **将模块顶层 import 改为函数内按需 import**——`RandomSurvivalForest`、`CoxPHSurvivalAnalysis`、`concordance_index_censored` 分别移到 `_train_cox()`、`_train_rsf()`、`evaluate()` 内部，只有真正执行 Survival 训练/评估时才触发导入。
+2. **恢复 `requirements.txt` 中的依赖**——部署环境必须包含所有端点可能用到的包。
+
+**避免方法：**
+- **顶层只导入"必定存在"的依赖**（numpy、pandas、sklearn、xgboost）。可选功能/端点的依赖放在函数内部按需导入。
+- **`requirements.txt` 覆盖所有端点**。如果某个依赖体积大或编译慢，在文档中标注它属于哪个端点，但不要直接从部署依赖中删除。
+- 可以保留 `pyproject.toml` 的 `optional-dependencies` 分组用于本地开发，但 Streamlit Cloud 只读 `requirements.txt`，两者要分开维护。
+
+### 7.8 其他
 
 - **pyproject.toml 统一配置：** 将 ruff、mypy、pytest、setuptools 的配置全部集中在 `pyproject.toml` 中，避免根目录散落 `.flake8`、`setup.cfg`、`mypy.ini` 等文件。
 - **富依赖管理：** `requirements.txt` 用于最小化部署依赖，`pyproject.toml` 用于开发全量依赖 + optional-dependencies。两者职责分离，避免混淆。
